@@ -38,6 +38,7 @@ SUPPORTED LANGUAGE SUBSET
     itemized lists
     plain text
     bold/italic/code font tags
+    umlauts
 
 AUTHOR
     Steven Schubiger <schubiger@cpan.org>

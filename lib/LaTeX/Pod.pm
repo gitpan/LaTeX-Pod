@@ -6,7 +6,7 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 sub new {
     my ($self, $file) = @_;
@@ -18,20 +18,24 @@ sub new {
 sub convert {
     my $self = shift;
 
-    my $nodes = $self->init_tom();
+    my $nodes = $self->_init_tom();
 
     foreach my $node (@$nodes) {
         $self->{current_node} = $node;
         my $type = $node->getNodeType();
         if ($type =~ /TEXT|COMMENT/) {
             next unless $node->getNodeText() =~ /\w+/;
+            next if $node->getNodeText() =~ /^\\\w+$/m;
+            if ($self->_process_directives()) { next }
             if ($self->_is_set_node('title')) {
                 $self->_process_text_title();
             } elsif ($self->_is_set_node('verbatim')) {
                 $self->_process_text_verbatim();
-            } elsif ($node->getNodeText() =~ /\\item\[.*?\]/) {
+            } elsif ($node->getNodeText() =~ /\\item/) {
                 $self->_process_text_item();
-            } 
+            } else {
+                $self->_process_text();
+            }
         } elsif ($type =~ /ENVIRONMENT/) {
             $self->_process_verbatim();
         } elsif ($type =~ /COMMAND/) {
@@ -45,16 +49,17 @@ sub convert {
                 $self->_process_subsection();
             }
             my $cmd_name = $node->getCommandName();
-            if ($cmd_name eq 'textbf') {
-                $self->_process_text_subst_tags($cmd_name);
-            } elsif ($cmd_name eq 'emph') {
-                $self->_process_text_subst_tags($cmd_name);
-            } elsif ($cmd_name eq 'textsf') {
-                $self->_process_text_subst_tags($cmd_name);
+            if ($cmd_name =~ /documentclass|usepackage|pagestyle/) {
+                $self->_register_node('directive');
+            } elsif ($cmd_name eq 'title') {
+                $self->_register_node('doctitle');
+            } elsif ($cmd_name eq 'author') {
+                $self->_register_node('docauthor');
             }
         }
     }
 
+    $self->{pod} =~ s/\n{2,}/\n\n/g;
     return $self->{pod};
 }
 
@@ -68,17 +73,40 @@ sub _init_tom {
     return $nodes;
 }
 
+sub _process_directives {
+    my $self = shift;
+
+    if ($self->_is_set_node('directive')) {
+        $self->_unregister_node('directive');
+        return 1;
+    } elsif ($self->_is_set_node('doctitle')) {
+        $self->_unregister_node('doctitle');
+        $self->{pod} .= "=head1 " . $self->{current_node}->getNodeText();
+        return 1;
+    } elsif ($self->_is_set_node('docauthor')) {
+        $self->_unregister_node('docauthor');
+        $self->{pod} .= " (" . $self->{current_node}->getNodeText() . ")";
+        return 1;
+    }
+
+    return 0;
+}
+
 sub _process_text_title {
     my $self = shift;
 
-    if ($self->is_set_previous('item')) { 
+    if ($self->_is_set_previous('item')) { 
         $self->{pod} .= "=back\n\n";
     }
 
-    $self->{pod} .= $self->{current_node}->getNodeText(). "\n";
+    my $text = $self->{current_node}->getNodeText();
 
-    $self->unregister_node('title');
-    $self->register_previous('title');
+    $self->_process_spec_chars(\$text);
+
+    $self->{pod} .= $text . "\n";
+
+    $self->_unregister_node('title');
+    $self->_register_previous('title');
 }
 
 sub _process_text_verbatim {
@@ -86,12 +114,12 @@ sub _process_text_verbatim {
 
     my $text = $self->{current_node}->getNodeText();
 
-    unless ($self->is_set_previous('verbatim') 
-         || $self->is_set_previous('item')) {
+    unless ($self->_is_set_previous('verbatim') 
+         || $self->_is_set_previous('item')) {
         $text .= "\n";
     }
 
-    if (!$self->is_set_previous('item')) {
+    if (!$self->_is_set_previous('item')) {
         $text =~ s/^(.*)$/\ $1/gm;
     } else {
         $text =~ s/(.*)/\n$1/;
@@ -99,53 +127,50 @@ sub _process_text_verbatim {
 
     $self->{pod} .= $text;
 
-    $self->unregister_node('verbatim');
-    $self->unregister_previous('title');
-    $self->register_previous('verbatim');
+    $self->_unregister_node('verbatim');
+    $self->_unregister_previous('title');
+    $self->_register_previous('verbatim');
 }
 
 sub _process_text_item {
     my $self = shift;
 
-    unless ($self->is_set_previous('item')) { 
+    unless ($self->_is_set_previous('item')) { 
         $self->{pod} .= "\n=over 4\n";
     }
 
     my $text = $self->{current_node}->getNodeText();
 
-    $text =~ s/\\item\[(.*?)\]/\=item $1/g;
+    $text =~ s/\\item\[?(.*?)\]?/\=item $1/g;
     $text =~ s/^\n//;
     $text =~ s/\n$//;
 
+    $self->_process_spec_chars(\$text);
+
     $self->{pod} .= $text;
 
-    $self->register_previous('item');
+    $self->_register_previous('item');
 }
 
-sub _process_text_subst_tags {
-    my ($self, $tag) = @_;
+sub _process_text {
+    my $self = shift;
 
-    my $node = $self->{current_node}->getFirstChild();
-    my $text = $node->getNodeText();
+    my $text = $self->{current_node}->getNodeText();
 
-    if ($tag eq 'textbf') {
-        $self->{pod} .= "B<$text>";
-    } elsif ($tag eq 'emph') {
-        $self->{pod} .= "I<$text>";
-    } elsif ($tag eq 'textsf') {
-        $self->{pod} .= "C<$text>";
-    }
+    $self->_process_spec_chars(\$text);
 
-    $self->{pod} .= "\n";
+    $self->{pod} .= $text;
+
+    $self->_register_previous('text');
 }
 
 sub _process_verbatim {
     my $self = shift;
 
-    $self->unregister_previous('verbatim');
+    $self->_unregister_previous('verbatim');
 
     if ($self->{current_node}->getEnvironmentClass() eq 'verbatim') {
-        $self->register_node('verbatim');
+        $self->_register_node('verbatim');
     }
 }
 
@@ -153,28 +178,31 @@ sub _process_item {
     my $self = shift;
 
     unless ($self->{current_node}->getCommandName() eq 'mbox') {
-        if ($self->is_set_previous('item')) {
+        if ($self->_is_set_previous('item')) {
             $self->{pod} .= "\n=back\n";
         }
 
         $self->{pod} .= "\n";
 
-        $self->unregister_previous('item');
+        $self->_unregister_previous('item');
     }
 }
 
 sub _process_section {
     my $self = shift;
 
-    if ($self->is_set_previous('title') || $self->is_set_previous('item')) {
+    if ($self->_is_set_previous('title') 
+     || $self->_is_set_previous('item') 
+     || $self->_is_set_previous('text')) {
         $self->{pod} .= "\n\n";
-        $self->unregister_previous('title');
-        $self->unregister_previous('item');
+        $self->_unregister_previous('title');
+        $self->_unregister_previous('item');
+        $self->_unregister_previous('text');
     }
 
     $self->{pod} .= '=head1 ';
 
-    $self->register_node('title');
+    $self->_register_node('title');
 }
 
 sub _process_subsection {
@@ -187,14 +215,32 @@ sub _process_subsection {
         $sub_often++;
     }
 
-    if ($self->is_set_previous('title')) {
+    if ($self->_is_set_previous('title') || $self->_is_set_previous('text')) {
         $self->{pod} .= "\n";
-        $self->unregister_previous('title');
+        $self->_unregister_previous('title');
+        $self->_unregister_previous('text');
     }
 
     $self->{pod} .= '=head'.($sub_often+1).' ';
 
-    $self->register_node('title');
+    $self->_register_node('title');
+}
+
+sub _process_spec_chars {
+    my ($self, $text) = @_;
+
+    $$text =~ s/\\\"A/Ä/g;
+    $$text =~ s/\\\"a/ä/g;
+    $$text =~ s/\\\"U/Ü/g;
+    $$text =~ s/\\\"u/ü/g;
+    $$text =~ s/\\\"O/Ö/g;
+    $$text =~ s/\\\"o/ö/g;
+
+    $$text =~ s/\\_/\_/g;
+    $$text =~ s/\\$/\$/g;
+
+    $$text =~ s/\\verb(.)([\w\s]*?)\1/C<$2>/g;
+    $$text =~ s/\\newline/\n/g;
 }
 
 sub _register_node {
@@ -279,6 +325,8 @@ It's not much, but there's more to come:
 =item plain text
 
 =item bold/italic/code font tags
+
+=item umlauts
 
 =back
 

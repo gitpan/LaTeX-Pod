@@ -1,5 +1,13 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.02 Mon Dec 25 14:34:14 CET 2006
+
+ - Unknown directives are skipped.
+
+ - LaTeX Umlauts definitions are converted.
+
+ - More than two following newlines will be reduced to two.
+
 0.01 Mon Dec 25 05:59:08 CET 2006
 
  - Initial version.
