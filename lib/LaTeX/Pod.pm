@@ -6,7 +6,7 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 sub new {
     my ($self, $file) = @_;
@@ -24,18 +24,20 @@ sub convert {
         $self->{current_node} = $node;
         my $type = $node->getNodeType();
         if ($type =~ /TEXT|COMMENT/) {
-            next unless $node->getNodeText() =~ /\w+/;
-            next if $node->getNodeText() =~ /^\\\w+$/m;
-            if ($self->_process_directives()) { next }
+            next if $node->getNodeText() !~ /\w+/
+                 or $node->getNodeText() =~ /^\\\w+$/m
+                 or $self->_process_directives();
             if ($self->_is_set_node('title')) {
                 $self->_process_text_title();
             } elsif ($self->_is_set_node('verbatim')) {
                 $self->_process_text_verbatim();
             } elsif ($node->getNodeText() =~ /\\item/) {
                 $self->_process_text_item();
+            } elsif ($self->_is_set_node('textbf')) {
+                $self->_process_tags('textbf');
             } else {
                 $self->_process_text();
-            }
+           }
         } elsif ($type =~ /ENVIRONMENT/) {
             $self->_process_verbatim();
         } elsif ($type =~ /COMMAND/) {
@@ -54,7 +56,9 @@ sub convert {
             } elsif ($cmd_name eq 'title') {
                 $self->_register_node('doctitle');
             } elsif ($cmd_name eq 'author') {
-                $self->_register_node('docauthor');
+               $self->_register_node('docauthor');
+            } elsif ($cmd_name =~ /textbf|textsf|emph/) {
+               $self->_register_node($cmd_name);
             }
         }
     }
@@ -66,7 +70,7 @@ sub convert {
 sub _init_tom {
     my $self = shift;
 
-    my $parser = Parser->new();
+    my $parser = Parser->new(2); # be silent
     my $document = $parser->parseFile($self->{file});
     my $nodes = $document->getAllNodes();
 
@@ -237,10 +241,24 @@ sub _process_spec_chars {
     $$text =~ s/\\\"o/ö/g;
 
     $$text =~ s/\\_/\_/g;
-    $$text =~ s/\\$/\$/g;
+    $$text =~ s/\\\$/\$/g;
 
-    $$text =~ s/\\verb(.)([\w\s]*?)\1/C<$2>/g;
+    $$text =~ s/\\verb(.)(.*?)\1/C<$2>/g;
     $$text =~ s/\\newline/\n/g;
+}
+
+sub _process_tags {
+    my ($self, $tag) = @_;
+
+    my $text = $self->{current_node}->getNodeText();
+
+    my %tags = (textbf => 'B',
+                textsf => 'C',
+                emph   => 'I');
+
+    $self->{pod} .= "$tags{$tag}<$text>";
+
+    $self->_unregister_node($tag);
 }
 
 sub _register_node {
@@ -316,17 +334,17 @@ It's not much, but there's more to come:
 
 =over 4
 
-=item sections/subsections
+=item * sections/subsections
 
-=item verbatim blocks
+=item * verbatim blocks
 
-=item itemized lists
+=item * itemized lists
 
-=item plain text
+=item * plain text
 
-=item bold/italic/code font tags
+=item * bold/italic/code font tags
 
-=item umlauts
+=item * umlauts
 
 =back
 

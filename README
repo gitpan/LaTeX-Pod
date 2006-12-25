@@ -33,12 +33,12 @@ METHODS
 SUPPORTED LANGUAGE SUBSET
     It's not much, but there's more to come:
 
-    sections/subsections
-    verbatim blocks
-    itemized lists
-    plain text
-    bold/italic/code font tags
-    umlauts
+    * sections/subsections
+    * verbatim blocks
+    * itemized lists
+    * plain text
+    * bold/italic/code font tags
+    * umlauts
 
 AUTHOR
     Steven Schubiger <schubiger@cpan.org>

@@ -1,5 +1,11 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.03 Die Dec 26 00:20:08 CET 2006
+
+ - Fixed umlauts.
+ 
+ - Improved documentation.
+
 0.02 Mon Dec 25 14:34:14 CET 2006
 
  - Unknown directives are skipped.
