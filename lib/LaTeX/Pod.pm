@@ -6,7 +6,7 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 sub new {
     my ($self, $file) = @_;
@@ -19,6 +19,8 @@ sub convert {
     my $self = shift;
 
     my $nodes = $self->_init_tom();
+
+    $self->{title_inc} = 1;
 
     foreach my $node (@$nodes) {
         $self->{current_node} = $node;
@@ -35,6 +37,10 @@ sub convert {
                 $self->_process_text_item();
             } elsif ($self->_is_set_node('textbf')) {
                 $self->_process_tags('textbf');
+            } elsif ($self->_is_set_node('textsf')) {
+                $self->_process_tags('textsf');
+            } elsif ($self->_is_set_node('emph')) {
+                $self->_process_tags('emph');
             } else {
                 $self->_process_text();
            }
@@ -42,16 +48,16 @@ sub convert {
             $self->_process_verbatim();
         } elsif ($type =~ /COMMAND/) {
             $self->_unregister_previous('verbatim');
+            my $cmd_name = $node->getCommandName();
             if ($self->_is_set_previous('item')) {
                 $self->_process_item();
-            }
-            if ($node->getCommandName() eq 'section') {
+            } elsif ($cmd_name eq 'chapter') {
+                $self->_process_chapter();
+            } elsif ($cmd_name eq 'section') {
                 $self->_process_section();
-            } elsif ($node->getCommandName() =~ /subsection/) {
+            } elsif ($cmd_name =~ /subsection/) {
                 $self->_process_subsection();
-            }
-            my $cmd_name = $node->getCommandName();
-            if ($cmd_name =~ /documentclass|usepackage|pagestyle/) {
+            } elsif ($cmd_name =~ /documentclass|usepackage|pagestyle/) {
                 $self->_register_node('directive');
             } elsif ($cmd_name eq 'title') {
                 $self->_register_node('doctitle');
@@ -70,7 +76,8 @@ sub convert {
 sub _init_tom {
     my $self = shift;
 
-    my $parser = Parser->new(2); # be silent
+    # silently discard warnings about unparseable latex
+    my $parser = Parser->new(2);
     my $document = $parser->parseFile($self->{file});
     my $nodes = $document->getAllNodes();
 
@@ -192,6 +199,20 @@ sub _process_item {
     }
 }
 
+sub _process_chapter {
+    my $self = shift;
+
+    if ($self->_is_set_previous('title')) {
+        $self->_unregister_previous('title');
+    }
+
+    $self->{title_inc}++;
+
+    $self->{pod} .= '=head1 ';
+
+    $self->_register_node('title');
+}
+
 sub _process_section {
     my $self = shift;
 
@@ -204,7 +225,7 @@ sub _process_section {
         $self->_unregister_previous('text');
     }
 
-    $self->{pod} .= '=head1 ';
+    $self->{pod} .= '=head'.$self->{title_inc}.' ';
 
     $self->_register_node('title');
 }
@@ -225,7 +246,7 @@ sub _process_subsection {
         $self->_unregister_previous('text');
     }
 
-    $self->{pod} .= '=head'.($sub_often+1).' ';
+    $self->{pod} .= '=head'.($self->{title_inc}+$sub_often).' ';
 
     $self->_register_node('title');
 }
@@ -333,6 +354,8 @@ Returns the POD document as string.
 It's not much, but there's more to come:
 
 =over 4
+
+=item * chapters
 
 =item * sections/subsections
 

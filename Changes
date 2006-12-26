@@ -1,5 +1,9 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.04 Die Dec 26 01:46:39 CET 2006
+
+ - Forgot to include code for processing code & italic font tags.
+
 0.03 Die Dec 26 00:20:08 CET 2006
 
  - Fixed umlauts.
