@@ -6,12 +6,12 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 sub new {
     my ($self, $file) = @_;
     my $class = ref($self) || $self;
-    croak "No path to latex file provided!" unless $file;
+    croak "No valid path to latex file provided: $!" unless -f $file;
     return bless { file => $file }, $class;
 }
 
@@ -69,8 +69,11 @@ sub convert {
         }
     }
 
-    $self->{pod} =~ s/\n{2,}/\n\n/g;
-    return $self->{pod};
+    my $pod = $self->_pod_get();
+    $pod =~ s/\n{2,}/\n\n/g;
+    $self->_pod_set($pod);
+
+    return $pod;
 }
 
 sub _init_tom {
@@ -92,11 +95,11 @@ sub _process_directives {
         return 1;
     } elsif ($self->_is_set_node('doctitle')) {
         $self->_unregister_node('doctitle');
-        $self->{pod} .= "=head1 " . $self->{current_node}->getNodeText();
+        $self->_pod_add("=head1 " . $self->{current_node}->getNodeText());
         return 1;
     } elsif ($self->_is_set_node('docauthor')) {
         $self->_unregister_node('docauthor');
-        $self->{pod} .= " (" . $self->{current_node}->getNodeText() . ")";
+        $self->_pod_add(' (' . $self->{current_node}->getNodeText() . ')');
         return 1;
     }
 
@@ -107,14 +110,14 @@ sub _process_text_title {
     my $self = shift;
 
     if ($self->_is_set_previous('item')) { 
-        $self->{pod} .= "=back\n\n";
+        $self->_pod_add("=back\n\n");
     }
 
     my $text = $self->{current_node}->getNodeText();
 
     $self->_process_spec_chars(\$text);
 
-    $self->{pod} .= $text . "\n";
+    $self->_pod_add($text . "\n");
 
     $self->_unregister_node('title');
     $self->_register_previous('title');
@@ -125,18 +128,25 @@ sub _process_text_verbatim {
 
     my $text = $self->{current_node}->getNodeText();
 
+    unless ($self->_is_set_previous('verbatim')) {
+        $text =~ s/^\n//s;
+        $text =~ s/\n$//s if $text =~ /\n{2,}$/;
+    }
+
     unless ($self->_is_set_previous('verbatim') 
-         || $self->_is_set_previous('item')) {
+         || $self->_is_set_previous('item')
+         || $self->_is_set_previous('text')) {
         $text .= "\n";
     }
 
-    if (!$self->_is_set_previous('item')) {
+    if ($self->_is_set_previous('item') ||
+        $self->_is_set_previous('text')) {
         $text =~ s/^(.*)$/\ $1/gm;
     } else {
         $text =~ s/(.*)/\n$1/;
     }
 
-    $self->{pod} .= $text;
+    $self->_pod_add($text);
 
     $self->_unregister_node('verbatim');
     $self->_unregister_previous('title');
@@ -147,7 +157,7 @@ sub _process_text_item {
     my $self = shift;
 
     unless ($self->_is_set_previous('item')) { 
-        $self->{pod} .= "\n=over 4\n";
+        $self->_pod_add("\n=over 4\n");
     }
 
     my $text = $self->{current_node}->getNodeText();
@@ -158,7 +168,7 @@ sub _process_text_item {
 
     $self->_process_spec_chars(\$text);
 
-    $self->{pod} .= $text;
+    $self->_pod_add($text);
 
     $self->_register_previous('item');
 }
@@ -170,7 +180,7 @@ sub _process_text {
 
     $self->_process_spec_chars(\$text);
 
-    $self->{pod} .= $text;
+    $self->_pod_add($text);
 
     $self->_register_previous('text');
 }
@@ -190,10 +200,10 @@ sub _process_item {
 
     unless ($self->{current_node}->getCommandName() eq 'mbox') {
         if ($self->_is_set_previous('item')) {
-            $self->{pod} .= "\n=back\n";
+            $self->_pod_add("\n=back\n");
         }
 
-        $self->{pod} .= "\n";
+        $self->_pod_add("\n");
 
         $self->_unregister_previous('item');
     }
@@ -208,7 +218,7 @@ sub _process_chapter {
 
     $self->{title_inc}++;
 
-    $self->{pod} .= '=head1 ';
+    $self->_pod_add('=head1 ');
 
     $self->_register_node('title');
 }
@@ -219,13 +229,13 @@ sub _process_section {
     if ($self->_is_set_previous('title') 
      || $self->_is_set_previous('item') 
      || $self->_is_set_previous('text')) {
-        $self->{pod} .= "\n\n";
+        $self->_pod_add("\n\n");
         $self->_unregister_previous('title');
         $self->_unregister_previous('item');
         $self->_unregister_previous('text');
     }
 
-    $self->{pod} .= '=head'.$self->{title_inc}.' ';
+    $self->_pod_add('=head'.$self->{title_inc}.' ');
 
     $self->_register_node('title');
 }
@@ -240,13 +250,16 @@ sub _process_subsection {
         $sub_often++;
     }
 
-    if ($self->_is_set_previous('title') || $self->_is_set_previous('text')) {
-        $self->{pod} .= "\n";
+    if ($self->_is_set_previous('title')
+     || $self->_is_set_previous('text')
+     || $self->_is_set_previous('verbatim')) {
+        $self->_pod_add("\n");
         $self->_unregister_previous('title');
         $self->_unregister_previous('text');
+        $self->_unregister_previous('verbatim');
     }
 
-    $self->{pod} .= '=head'.($self->{title_inc}+$sub_often).' ';
+    $self->_pod_add('=head'.($self->{title_inc}+$sub_often).' ');
 
     $self->_register_node('title');
 }
@@ -277,9 +290,24 @@ sub _process_tags {
                 textsf => 'C',
                 emph   => 'I');
 
-    $self->{pod} .= "$tags{$tag}<$text>";
+    $self->_pod_add("$tags{$tag}<$text>");
 
     $self->_unregister_node($tag);
+}
+
+sub _pod_add {
+    my ($self, $content) = @_;
+    $self->{pod} .= $content;
+}
+
+sub _pod_get {
+    my $self = shift;
+    return $self->{pod};
+}
+
+sub _pod_set {
+    my ($self, $pod) = @_;
+    $self->{pod} = $pod;
 }
 
 sub _register_node {

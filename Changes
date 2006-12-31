@@ -1,5 +1,11 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.05 Sun Dec 31 03:29:24 CET 2006
+
+ - Added accessors to get/set the internal POD data.
+
+ - Fixed the indentation for LaTeX' verbatim blocks.
+
 0.04 Die Dec 26 01:46:39 CET 2006
 
  - Forgot to include code for processing code & italic font tags.
