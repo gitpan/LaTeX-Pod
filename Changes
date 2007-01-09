@@ -1,5 +1,10 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.06 Tue Jan  9 21:02:19 CET 2007
+
+ - Beautified code within Pod.pm, i.e. removed
+   parentheses from method calls without arguments.
+
 0.05 Sun Dec 31 03:29:24 CET 2006
 
  - Added accessors to get/set the internal POD data.

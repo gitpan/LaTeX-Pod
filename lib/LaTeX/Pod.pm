@@ -6,7 +6,7 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 sub new {
     my ($self, $file) = @_;
@@ -18,23 +18,23 @@ sub new {
 sub convert {
     my $self = shift;
 
-    my $nodes = $self->_init_tom();
+    my $nodes = $self->_init_tom;
 
     $self->{title_inc} = 1;
 
     foreach my $node (@$nodes) {
         $self->{current_node} = $node;
-        my $type = $node->getNodeType();
+        my $type = $node->getNodeType;
         if ($type =~ /TEXT|COMMENT/) {
-            next if $node->getNodeText() !~ /\w+/
-                 or $node->getNodeText() =~ /^\\\w+$/m
-                 or $self->_process_directives();
+            next if $node->getNodeText !~ /\w+/
+                 or $node->getNodeText =~ /^\\\w+$/m
+                 or $self->_process_directives;
             if ($self->_is_set_node('title')) {
-                $self->_process_text_title();
+                $self->_process_text_title;
             } elsif ($self->_is_set_node('verbatim')) {
-                $self->_process_text_verbatim();
-            } elsif ($node->getNodeText() =~ /\\item/) {
-                $self->_process_text_item();
+                $self->_process_text_verbatim;
+            } elsif ($node->getNodeText =~ /\\item/) {
+                $self->_process_text_item;
             } elsif ($self->_is_set_node('textbf')) {
                 $self->_process_tags('textbf');
             } elsif ($self->_is_set_node('textsf')) {
@@ -42,21 +42,21 @@ sub convert {
             } elsif ($self->_is_set_node('emph')) {
                 $self->_process_tags('emph');
             } else {
-                $self->_process_text();
+                $self->_process_text;
            }
         } elsif ($type =~ /ENVIRONMENT/) {
-            $self->_process_verbatim();
+            $self->_process_verbatim;
         } elsif ($type =~ /COMMAND/) {
             $self->_unregister_previous('verbatim');
-            my $cmd_name = $node->getCommandName();
+            my $cmd_name = $node->getCommandName;
             if ($self->_is_set_previous('item')) {
-                $self->_process_item();
+                $self->_process_item;
             } elsif ($cmd_name eq 'chapter') {
-                $self->_process_chapter();
+                $self->_process_chapter;
             } elsif ($cmd_name eq 'section') {
-                $self->_process_section();
+                $self->_process_section;
             } elsif ($cmd_name =~ /subsection/) {
-                $self->_process_subsection();
+                $self->_process_subsection;
             } elsif ($cmd_name =~ /documentclass|usepackage|pagestyle/) {
                 $self->_register_node('directive');
             } elsif ($cmd_name eq 'title') {
@@ -69,7 +69,7 @@ sub convert {
         }
     }
 
-    my $pod = $self->_pod_get();
+    my $pod = $self->_pod_get;
     $pod =~ s/\n{2,}/\n\n/g;
     $self->_pod_set($pod);
 
@@ -82,7 +82,7 @@ sub _init_tom {
     # silently discard warnings about unparseable latex
     my $parser = Parser->new(2);
     my $document = $parser->parseFile($self->{file});
-    my $nodes = $document->getAllNodes();
+    my $nodes = $document->getAllNodes;
 
     return $nodes;
 }
@@ -95,11 +95,11 @@ sub _process_directives {
         return 1;
     } elsif ($self->_is_set_node('doctitle')) {
         $self->_unregister_node('doctitle');
-        $self->_pod_add("=head1 " . $self->{current_node}->getNodeText());
+        $self->_pod_add("=head1 " . $self->{current_node}->getNodeText);
         return 1;
     } elsif ($self->_is_set_node('docauthor')) {
         $self->_unregister_node('docauthor');
-        $self->_pod_add(' (' . $self->{current_node}->getNodeText() . ')');
+        $self->_pod_add(' (' . $self->{current_node}->getNodeText . ')');
         return 1;
     }
 
@@ -113,7 +113,7 @@ sub _process_text_title {
         $self->_pod_add("=back\n\n");
     }
 
-    my $text = $self->{current_node}->getNodeText();
+    my $text = $self->{current_node}->getNodeText;
 
     $self->_process_spec_chars(\$text);
 
@@ -126,7 +126,7 @@ sub _process_text_title {
 sub _process_text_verbatim {
     my $self = shift;
 
-    my $text = $self->{current_node}->getNodeText();
+    my $text = $self->{current_node}->getNodeText;
 
     unless ($self->_is_set_previous('verbatim')) {
         $text =~ s/^\n//s;
@@ -160,7 +160,7 @@ sub _process_text_item {
         $self->_pod_add("\n=over 4\n");
     }
 
-    my $text = $self->{current_node}->getNodeText();
+    my $text = $self->{current_node}->getNodeText;
 
     $text =~ s/\\item\[?(.*?)\]?/\=item $1/g;
     $text =~ s/^\n//;
@@ -176,7 +176,7 @@ sub _process_text_item {
 sub _process_text {
     my $self = shift;
 
-    my $text = $self->{current_node}->getNodeText();
+    my $text = $self->{current_node}->getNodeText;
 
     $self->_process_spec_chars(\$text);
 
@@ -190,7 +190,7 @@ sub _process_verbatim {
 
     $self->_unregister_previous('verbatim');
 
-    if ($self->{current_node}->getEnvironmentClass() eq 'verbatim') {
+    if ($self->{current_node}->getEnvironmentClass eq 'verbatim') {
         $self->_register_node('verbatim');
     }
 }
@@ -198,7 +198,7 @@ sub _process_verbatim {
 sub _process_item {
     my $self = shift;
 
-    unless ($self->{current_node}->getCommandName() eq 'mbox') {
+    unless ($self->{current_node}->getCommandName eq 'mbox') {
         if ($self->_is_set_previous('item')) {
             $self->_pod_add("\n=back\n");
         }
@@ -244,7 +244,7 @@ sub _process_subsection {
     my $self = shift;
 
     my $sub_often;
-    my $var = $self->{current_node}->getCommandName();
+    my $var = $self->{current_node}->getCommandName;
 
     while ($var =~ s/sub(.*)/$1/g) {
         $sub_often++;
@@ -284,7 +284,7 @@ sub _process_spec_chars {
 sub _process_tags {
     my ($self, $tag) = @_;
 
-    my $text = $self->{current_node}->getNodeText();
+    my $text = $self->{current_node}->getNodeText;
 
     my %tags = (textbf => 'B',
                 textsf => 'C',
@@ -349,7 +349,7 @@ LaTeX::Pod - Transform LaTeX source files to POD (Plain old documentation)
  use LaTeX::Pod;
 
  my $parser = LaTeX::Pod->new('/path/to/latex/source');
- print $parser->convert();
+ print $parser->convert;
 
 =head1 DESCRIPTION
 
@@ -373,7 +373,7 @@ Returns the parser object.
 
 There is only one public method available, C<convert()>:
 
- $parser->convert();
+ $parser->convert;
 
 Returns the POD document as string.
 

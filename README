@@ -6,7 +6,7 @@ SYNOPSIS
      use LaTeX::Pod;
 
      my $parser = LaTeX::Pod->new('/path/to/latex/source');
-     print $parser->convert();
+     print $parser->convert;
 
 DESCRIPTION
     "LaTeX::Pod" converts LaTeX sources to Perl's POD (Plain old
@@ -26,7 +26,7 @@ METHODS
   convert
     There is only one public method available, "convert()":
 
-     $parser->convert();
+     $parser->convert;
 
     Returns the POD document as string.
 
