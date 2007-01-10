@@ -6,74 +6,86 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 sub new {
     my ($self, $file) = @_;
     my $class = ref($self) || $self;
     croak "No valid path to latex file provided: $!" unless -f $file;
-    return bless { file => $file }, $class;
+    return bless _init_self({ file => $file }), $class;
 }
 
 sub convert {
     my $self = shift;
 
-    my $nodes = $self->_init_tom;
-
     $self->{title_inc} = 1;
 
-    foreach my $node (@$nodes) {
+    my $nodes = $self->_init_tom;
+
+    OUTER: foreach my $node (@$nodes) {
         $self->{current_node} = $node;
         my $type = $node->getNodeType;
         if ($type =~ /TEXT|COMMENT/) {
             next if $node->getNodeText !~ /\w+/
                  or $node->getNodeText =~ /^\\\w+$/m
                  or $self->_process_directives;
-            if ($self->_is_set_node('title')) {
-                $self->_process_text_title;
-            } elsif ($self->_is_set_node('verbatim')) {
-                $self->_process_text_verbatim;
-            } elsif ($node->getNodeText =~ /\\item/) {
-                $self->_process_text_item;
-            } elsif ($self->_is_set_node('textbf')) {
-                $self->_process_tags('textbf');
-            } elsif ($self->_is_set_node('textsf')) {
-                $self->_process_tags('textsf');
-            } elsif ($self->_is_set_node('emph')) {
-                $self->_process_tags('emph');
-            } else {
-                $self->_process_text;
-           }
+            foreach my $dispatch (@{$self->{dispatch_text}}) {
+                if (eval $dispatch->[0]) {
+                    eval $dispatch->[1];
+                    next OUTER;
+               }
+            }
         } elsif ($type =~ /ENVIRONMENT/) {
             $self->_process_verbatim;
         } elsif ($type =~ /COMMAND/) {
             $self->_unregister_previous('verbatim');
             my $cmd_name = $node->getCommandName;
-            if ($self->_is_set_previous('item')) {
-                $self->_process_item;
-            } elsif ($cmd_name eq 'chapter') {
-                $self->_process_chapter;
-            } elsif ($cmd_name eq 'section') {
-                $self->_process_section;
-            } elsif ($cmd_name =~ /subsection/) {
-                $self->_process_subsection;
-            } elsif ($cmd_name =~ /documentclass|usepackage|pagestyle/) {
-                $self->_register_node('directive');
-            } elsif ($cmd_name eq 'title') {
-                $self->_register_node('doctitle');
-            } elsif ($cmd_name eq 'author') {
-               $self->_register_node('docauthor');
-            } elsif ($cmd_name =~ /textbf|textsf|emph/) {
-               $self->_register_node($cmd_name);
+            foreach my $dispatch (@{$self->{dispatch_command}}) {
+                if (eval $dispatch->[0]) {
+                    eval $dispatch->[1];
+                    next OUTER;
+                }
             }
         }
     }
+
+    $self->_pod_add('=cut');
 
     my $pod = $self->_pod_get;
     $pod =~ s/\n{2,}/\n\n/g;
     $self->_pod_set($pod);
 
     return $pod;
+}
+
+sub _init_self {
+    my $opts = shift;
+
+    my %opts;
+    $opts{file} = $opts->{file};
+
+    @{$opts{dispatch_text}} = (
+        [ q{$self->_is_set_node('title')},    q{$self->_process_text_title}     ],
+        [ q{$self->_is_set_node('verbatim')}, q{$self->_process_text_verbatim}  ],
+        [ q{$node->getNodeText =~ /\\\item/}, q{$self->_process_text_item}      ],
+        [ q{$self->_is_set_node('textbf')},   q{$self->_process_tags('textbf')} ],
+        [ q{$self->_is_set_node('textsf')},   q{$self->_process_tags('textsf')} ],
+        [ q{$self->_is_set_node('emph')},     q{$self->_process_tags('emph')}   ],
+        [ q{1},                               q{$self->_process_text}           ],
+    );
+
+    @{$opts{dispatch_command}} = (
+        [ q{$self->_is_set_previous('item')},                   q{$self->_process_item}               ],
+        [ q{$cmd_name eq 'chapter'},                            q{$self->_process_chapter}            ],
+        [ q{$cmd_name eq 'section'},                            q{$self->_process_section}            ],
+        [ q{$cmd_name =~ /subsection/},                         q{$self->_process_subsection}         ],
+        [ q{$cmd_name =~ /documentclass|usepackage|pagestyle/}, q{$self->_register_node('directive')} ],
+        [ q{$cmd_name eq 'title'},                              q{$self->_register_node('doctitle')}  ],
+        [ q{$cmd_name eq 'author'},                             q{$self->_register_node('docauthor')} ],
+        [ q{$cmd_name =~ /textbf|textsf|emph/},                 q{$self->_register_node($cmd_name)}   ],
+    );
+
+    return \%opts;
 }
 
 sub _init_tom {

@@ -1,5 +1,12 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.07
+
+ - Replaced previous text/command conditional branches in convert()
+   with calls to dispatch handler.
+
+ - The ending POD =cut directive will be added to generated output.
+
 0.06 Tue Jan  9 21:02:19 CET 2007
 
  - Beautified code within Pod.pm, i.e. removed

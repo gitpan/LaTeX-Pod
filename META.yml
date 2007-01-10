@@ -1,6 +1,6 @@
 ---
 name: LaTeX-Pod
-version: 0.06
+version: 0.07
 author:
   - 'Steven Schubiger <schubiger@cpan.org>'
 abstract: "Transform LaTeX source files to POD (Plain old documentation)"
@@ -19,6 +19,6 @@ meta-spec:
 provides:
   LaTeX::Pod:
     file: lib/LaTeX/Pod.pm
-    version: 0.06
+    version: 0.07
 resources:
   license: http://dev.perl.org/licenses/
