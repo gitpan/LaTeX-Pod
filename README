@@ -24,7 +24,7 @@ CONSTRUCTOR
 
 METHODS
   convert
-    There is only one public method available, "convert()":
+    There is only one public method available, "convert":
 
      $parser->convert;
 
@@ -40,6 +40,26 @@ SUPPORTED LANGUAGE SUBSET
     * plain text
     * bold/italic/code font tags
     * umlauts
+
+IMPLEMENTATION DETAILS
+    The current implementation is a bit *flaky* because "LaTeX::TOM", the
+    framework being used for parsing the LaTeX nodes, makes a clear
+    distinction between various types of nodes. As example, an \item
+    directive has quite often a separate text which is associated with
+    former one. And they can't be detected without a lookahead.
+
+    I tried to implement a *context-sensitive* awareness for "LaTeX::Pod". I
+    did so by setting which node has been seen before the current one in
+    order to be able to call the appropriate routine for a LaTeX directive
+    with two or more nodes. Furthermore, "LaTeX::Pod" registers which node
+    it has previously encountered and unregisters this information when it
+    made use of it.
+
+    Considering that the POD language has a limited subset of commands, the
+    overhead of keeping track of node occurences seems almost bearable. The
+    POD generated may consist of too many newlines (because we can't always
+    predict the unpredictable) before undergoing the final scrubbing where
+    more than two subsequent newlines will be truncated.
 
 AUTHOR
     Steven Schubiger <schubiger@cpan.org>

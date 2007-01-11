@@ -6,7 +6,7 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 sub new {
     my ($self, $file) = @_;
@@ -49,13 +49,9 @@ sub convert {
         }
     }
 
-    $self->_pod_add('=cut');
+    $self->_pod_finalize;
 
-    my $pod = $self->_pod_get;
-    $pod =~ s/\n{2,}/\n\n/g;
-    $self->_pod_set($pod);
-
-    return $pod;
+    return $self->_pod_get;
 }
 
 sub _init_self {
@@ -112,8 +108,6 @@ sub _process_directives {
         return 1;
     } elsif ($self->_is_set_node('docauthor')) {
         $self->_unregister_node('docauthor');
-        # Automatically forcing a title to include an autor seems rude
-        #$self->_pod_add(' (' . $self->{current_node}->getNodeText . ')');
         return 1;
     }
 
@@ -147,14 +141,11 @@ sub _process_text_verbatim {
         $text =~ s/\n$//s if $text =~ /\n{2,}$/;
     }
 
-    unless ($self->_is_set_previous('verbatim') 
-         || $self->_is_set_previous('item')
-         || $self->_is_set_previous('text')) {
+    unless ($self->_is_set_previous([qw(verbatim item text)])) {
         $text .= "\n";
     }
 
-    if ($self->_is_set_previous('item') ||
-        $self->_is_set_previous('text')) {
+    if ($self->_is_set_previous('text')) {
         $text =~ s/^(.*)$/\ $1/gm;
     } else {
         $text =~ s/(.*)/\n$1/;
@@ -177,18 +168,15 @@ sub _process_text_item {
     my $text = $self->{current_node}->getNodeText;
 
     if ($text =~ /\\item\s*\[.*?\]/) {
-        $text =~ s/\\item\s*\[(.*?)\](.*)/\=item $1\n\n$2/g;
+        $text =~ s/\\item\s*\[(.*?)\](.*)/\=item $1\n$2/g;
     } else {
         $text =~ s/\\item\s*(.*)/\=item \n\n$1/g;
     }
 
-    $text =~ s/^\n//;
-    $text =~ s/\n$//;
+    $text =~ s/^(?:\n)|(?:\n)$//g;
 
     $self->_process_spec_chars(\$text);
-
     $self->_pod_add($text);
-
     $self->_register_previous('item');
 }
 
@@ -198,9 +186,7 @@ sub _process_text {
     my $text = $self->{current_node}->getNodeText;
 
     $self->_process_spec_chars(\$text);
-
     $self->_pod_add($text);
-
     $self->_register_previous('text');
 }
 
@@ -223,7 +209,6 @@ sub _process_item {
         }
 
         $self->_pod_add("\n");
-
         $self->_unregister_previous('item');
     }
 }
@@ -238,24 +223,18 @@ sub _process_chapter {
     $self->{title_inc}++;
 
     $self->_pod_add("\n\n=head1 ");
-
     $self->_register_node('title');
 }
 
 sub _process_section {
     my $self = shift;
 
-    if ($self->_is_set_previous('title') 
-     || $self->_is_set_previous('item') 
-     || $self->_is_set_previous('text')) {
+    if ($self->_is_set_previous([qw(title item text)])) {
         $self->_pod_add("\n\n");
-        $self->_unregister_previous('title');
-        $self->_unregister_previous('item');
-        $self->_unregister_previous('text');
+        $self->_unregister_previous([qw(title item text)]);
     }
 
     $self->_pod_add("\n\n=head".$self->{title_inc}.' ');
-
     $self->_register_node('title');
 }
 
@@ -269,17 +248,12 @@ sub _process_subsection {
         $sub_often++;
     }
 
-    if ($self->_is_set_previous('title')
-     || $self->_is_set_previous('text')
-     || $self->_is_set_previous('verbatim')) {
+    if ($self->_is_set_previous([qw(title text verbatim)])) {
         $self->_pod_add("\n");
-        $self->_unregister_previous('title');
-        $self->_unregister_previous('text');
-        $self->_unregister_previous('verbatim');
+        $self->_unregister_previous([qw(title text verbatim)]);
     }
 
     $self->_pod_add("\n\n=head".($self->{title_inc}+$sub_often).' ');
-
     $self->_register_node('title');
 }
 
@@ -297,7 +271,7 @@ sub _process_spec_chars {
     $$text =~ s/\\\$/\$/g;
 
     $$text =~ s/\\verb(.)(.*?)\1/C<$2>/g;
-    $$text =~ s/\\newline/\n/g;
+    $$text =~ s/\\newline//g;
 }
 
 sub _process_tags {
@@ -310,13 +284,22 @@ sub _process_tags {
                 emph   => 'I');
 
     $self->_pod_add("$tags{$tag}<$text>");
-
     $self->_unregister_node($tag);
 }
 
 sub _pod_add {
     my ($self, $content) = @_;
     $self->{pod} .= $content;
+}
+
+sub _pod_finalize {
+    my $self = shift;
+
+    $self->_pod_add('=cut');
+
+    my $pod = $self->_pod_get;
+    $pod =~ s/\n{2,}/\n\n/g;
+    $self->_pod_set($pod);
 }
 
 sub _pod_get {
@@ -351,12 +334,23 @@ sub _register_previous {
 
 sub _is_set_previous {
     my ($self, $item) = @_;
-    return $self->{previous}{$item} ? 1 : 0;
+    my @items = ref($item) eq 'ARRAY' ? @$item : ($item);
+    foreach my $item_single (@items) {
+        if ($self->{previous}{$item_single}) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 sub _unregister_previous {
     my ($self, $item) = @_;
-    delete $self->{previous}{$item};
+    my @items = ref($item) eq 'ARRAY' ? @$item : ($item);
+    foreach my $item_single (@items) {
+        if ($self->{previous}{$item_single}) {
+            delete $self->{previous}{$item_single};
+        }
+    }
 }
 
 =head1 NAME
@@ -390,7 +384,7 @@ Returns the parser object.
 
 =head2 convert
 
-There is only one public method available, C<convert()>:
+There is only one public method available, C<convert>:
 
  $parser->convert;
 
@@ -417,6 +411,25 @@ It's not much, but there's more to come:
 =item * umlauts
 
 =back
+
+=head1 IMPLEMENTATION DETAILS
+
+The current implementation is a bit I<flaky> because C<LaTeX::TOM>, the framework
+being used for parsing the LaTeX nodes, makes a clear distinction between various
+types of nodes. As example, an \item directive has quite often a separate text which
+is associated with former one. And they can't be detected without a lookahead.
+
+I tried to implement a I<context-sensitive> awareness for C<LaTeX::Pod>. I did so
+by setting which node has been seen before the current one in order to be able to
+call the appropriate routine for a LaTeX directive with two or more nodes.
+Furthermore, C<LaTeX::Pod> registers which node it has previously encountered
+and unregisters this information when it made use of it.
+
+Considering that the POD language has a limited subset of commands, the overhead
+of keeping track of node occurences seems almost bearable. The POD generated 
+may consist of too many newlines (because we can't always predict the unpredictable)
+before undergoing the final scrubbing where more than two subsequent newlines
+will be truncated.
 
 =head1 AUTHOR
 

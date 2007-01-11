@@ -1,5 +1,14 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.09 Fri Jan 12 00:26:37 CET 2007
+
+ - The item's text has now proper intendation (speak none)
+   and leading/trailing newlines are attached.
+
+ - Fixed minor spelling nit within Pod.pm.
+ 
+ - Added some implementation details to the documentation.
+
 0.08 Thu Jan 11 01:18:38 CET 2007
 
  - Introduction of dispatch handler broke the handling of the
