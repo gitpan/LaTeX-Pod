@@ -6,12 +6,12 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 sub new {
     my ($self, $file) = @_;
     my $class = ref($self) || $self;
-    croak "No valid path to latex file provided: $!" unless -f $file;
+    croak "$file: $!" unless -f $file;
     return bless _init_self({ file => $file }), $class;
 }
 
@@ -22,17 +22,18 @@ sub convert {
 
     my $nodes = $self->_init_tom;
 
-    OUTER: foreach my $node (@$nodes) {
+    foreach my $node (@$nodes) {
         $self->{current_node} = $node;
         my $type = $node->getNodeType;
         if ($type =~ /TEXT|COMMENT/) {
             next if $node->getNodeText !~ /\w+/
                  or $node->getNodeText =~ /^\\\w+$/m
                  or $self->_process_directives;
+            my $dispatched;
             foreach my $dispatch (@{$self->{dispatch_text}}) {
                 if (eval $dispatch->[0]) {
                     eval $dispatch->[1];
-                    next OUTER;
+                    $dispatched++;
                }
             }
         } elsif ($type =~ /ENVIRONMENT/) {
@@ -43,7 +44,6 @@ sub convert {
             foreach my $dispatch (@{$self->{dispatch_command}}) {
                 if (eval $dispatch->[0]) {
                     eval $dispatch->[1];
-                    next OUTER;
                 }
             }
         }
@@ -71,7 +71,7 @@ sub _init_self {
         [ q{$self->_is_set_node('textbf')},   q{$self->_process_tags('textbf')} ],
         [ q{$self->_is_set_node('textsf')},   q{$self->_process_tags('textsf')} ],
         [ q{$self->_is_set_node('emph')},     q{$self->_process_tags('emph')}   ],
-        [ q{1},                               q{$self->_process_text}           ],
+        [ q{!$dispatched},                    q{$self->_process_text}           ],
     );
 
     @{$opts{dispatch_command}} = (
@@ -108,10 +108,12 @@ sub _process_directives {
     } elsif ($self->_is_set_node('doctitle')) {
         $self->_unregister_node('doctitle');
         $self->_pod_add("=head1 " . $self->{current_node}->getNodeText);
+        $self->{title_inc}++;
         return 1;
     } elsif ($self->_is_set_node('docauthor')) {
         $self->_unregister_node('docauthor');
-        $self->_pod_add(' (' . $self->{current_node}->getNodeText . ')');
+        # Automatically forcing a title to include an autor seems rude
+        #$self->_pod_add(' (' . $self->{current_node}->getNodeText . ')');
         return 1;
     }
 
@@ -158,7 +160,7 @@ sub _process_text_verbatim {
         $text =~ s/(.*)/\n$1/;
     }
 
-    $self->_pod_add($text);
+    $self->_pod_add("$text\n");
 
     $self->_unregister_node('verbatim');
     $self->_unregister_previous('title');
@@ -168,13 +170,18 @@ sub _process_text_verbatim {
 sub _process_text_item {
     my $self = shift;
 
-    unless ($self->_is_set_previous('item')) { 
-        $self->_pod_add("\n=over 4\n");
+    unless ($self->_is_set_previous('item')) {
+        $self->_pod_add("\n\n=over 4\n\n");
     }
 
     my $text = $self->{current_node}->getNodeText;
 
-    $text =~ s/\\item\[?(.*?)\]?/\=item $1/g;
+    if ($text =~ /\\item\s*\[.*?\]/) {
+        $text =~ s/\\item\s*\[(.*?)\](.*)/\=item $1\n\n$2/g;
+    } else {
+        $text =~ s/\\item\s*(.*)/\=item \n\n$1/g;
+    }
+
     $text =~ s/^\n//;
     $text =~ s/\n$//;
 
@@ -230,7 +237,7 @@ sub _process_chapter {
 
     $self->{title_inc}++;
 
-    $self->_pod_add('=head1 ');
+    $self->_pod_add("\n\n=head1 ");
 
     $self->_register_node('title');
 }
@@ -247,7 +254,7 @@ sub _process_section {
         $self->_unregister_previous('text');
     }
 
-    $self->_pod_add('=head'.$self->{title_inc}.' ');
+    $self->_pod_add("\n\n=head".$self->{title_inc}.' ');
 
     $self->_register_node('title');
 }
@@ -271,7 +278,7 @@ sub _process_subsection {
         $self->_unregister_previous('verbatim');
     }
 
-    $self->_pod_add('=head'.($self->{title_inc}+$sub_often).' ');
+    $self->_pod_add("\n\n=head".($self->{title_inc}+$sub_often).' ');
 
     $self->_register_node('title');
 }
