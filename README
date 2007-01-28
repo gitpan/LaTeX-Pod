@@ -34,7 +34,7 @@ SUPPORTED LANGUAGE SUBSET
     It's not much, but there's more to come:
 
     * chapters
-    * sections/subsections
+    * sections/subsections/subsub...
     * verbatim blocks
     * itemized lists
     * plain text
@@ -46,7 +46,8 @@ IMPLEMENTATION DETAILS
     framework being used for parsing the LaTeX nodes, makes a clear
     distinction between various types of nodes. As example, an \item
     directive has quite often a separate text which is associated with
-    former one. And they can't be detected without a lookahead.
+    former one. And they can't be detected without some kind of
+    sophisticated "lookahead".
 
     I tried to implement a *context-sensitive* awareness for "LaTeX::Pod". I
     did so by setting which node has been seen before the current one in
@@ -58,8 +59,11 @@ IMPLEMENTATION DETAILS
     Considering that the POD language has a limited subset of commands, the
     overhead of keeping track of node occurences seems almost bearable. The
     POD generated may consist of too many newlines (because we can't always
-    predict the unpredictable) before undergoing the final scrubbing where
+    predict the unpredictable?) before undergoing the final scrubbing where
     more than two subsequent newlines will be truncated.
+
+SEE ALSO
+    LaTeX::TOM
 
 AUTHOR
     Steven Schubiger <schubiger@cpan.org>

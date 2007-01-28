@@ -1,5 +1,11 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.09_01 Sun Jan 28 01:25:29 CET 2007
+
+ - Added call of _process_spec_chars() to _process_text_verbatim().
+
+ - Some minor, but nonetheless important, code reformatting.
+
 0.09 Fri Jan 12 00:26:37 CET 2007
 
  - The item's text has now proper intendation (speak none)

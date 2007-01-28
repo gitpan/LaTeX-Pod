@@ -6,29 +6,31 @@ use warnings;
 use Carp qw(croak);
 use LaTeX::TOM;
 
-our $VERSION = '0.09';
+our $VERSION = '0.09_01';
 
 sub new {
     my ($self, $file) = @_;
+
     my $class = ref($self) || $self;
     croak "$file: $!" unless -f $file;
+
     return bless _init_self({ file => $file }), $class;
 }
 
 sub convert {
     my $self = shift;
 
-    $self->{title_inc} = 1;
-
     my $nodes = $self->_init_tom;
 
     foreach my $node (@$nodes) {
         $self->{current_node} = $node;
         my $type = $node->getNodeType;
+
         if ($type =~ /TEXT|COMMENT/) {
             next if $node->getNodeText !~ /\w+/
                  or $node->getNodeText =~ /^\\\w+$/m
                  or $self->_process_directives;
+
             my $dispatched;
             foreach my $dispatch (@{$self->{dispatch_text}}) {
                 if (eval $dispatch->[0]) {
@@ -41,6 +43,7 @@ sub convert {
         } elsif ($type =~ /COMMAND/) {
             $self->_unregister_previous('verbatim');
             my $cmd_name = $node->getCommandName;
+
             foreach my $dispatch (@{$self->{dispatch_command}}) {
                 if (eval $dispatch->[0]) {
                     eval $dispatch->[1];
@@ -58,7 +61,9 @@ sub _init_self {
     my $opts = shift;
 
     my %opts;
-    $opts{file} = $opts->{file};
+
+    $opts{file}      = $opts->{file};
+    $opts{title_inc} = 1;
 
     @{$opts{dispatch_text}} = (
         [ q{$self->_is_set_node('title')},    q{$self->_process_text_title}     ],
@@ -103,7 +108,7 @@ sub _process_directives {
         return 1;
     } elsif ($self->_is_set_node('doctitle')) {
         $self->_unregister_node('doctitle');
-        $self->_pod_add("=head1 " . $self->{current_node}->getNodeText);
+        $self->_pod_add("=head1 ".$self->{current_node}->getNodeText);
         $self->{title_inc}++;
         return 1;
     } elsif ($self->_is_set_node('docauthor')) {
@@ -117,7 +122,7 @@ sub _process_directives {
 sub _process_text_title {
     my $self = shift;
 
-    if ($self->_is_set_previous('item')) { 
+    if ($self->_is_set_previous('item')) {
         $self->_pod_add("=back\n\n");
     }
 
@@ -125,7 +130,7 @@ sub _process_text_title {
 
     $self->_process_spec_chars(\$text);
 
-    $self->_pod_add($text . "\n");
+    $self->_pod_add("$text\n");
 
     $self->_unregister_node('title');
     $self->_register_previous('title');
@@ -150,6 +155,8 @@ sub _process_text_verbatim {
     } else {
         $text =~ s/(.*)/\n$1/;
     }
+
+    $self->_process_spec_chars(\$text);
 
     $self->_pod_add("$text\n");
 
@@ -253,19 +260,23 @@ sub _process_subsection {
         $self->_unregister_previous([qw(title text verbatim)]);
     }
 
-    $self->_pod_add("\n\n=head".($self->{title_inc}+$sub_often).' ');
+    $self->_pod_add("\n\n=head".($self->{title_inc} + $sub_often).' ');
     $self->_register_node('title');
 }
 
 sub _process_spec_chars {
     my ($self, $text) = @_;
 
-    $$text =~ s/\\\"A/Ä/g;
-    $$text =~ s/\\\"a/ä/g;
-    $$text =~ s/\\\"U/Ü/g;
-    $$text =~ s/\\\"u/ü/g;
-    $$text =~ s/\\\"O/Ö/g;
-    $$text =~ s/\\\"o/ö/g;
+    my %umlauts = (a => 'ä',
+                   A => 'Ä',
+                   u => 'ü',
+                   U => 'Ü',
+                   o => 'ö',
+                   O => 'Ö');
+
+    while (my ($from, $to) = each %umlauts) {
+        $$text =~ s/\\\"$from/$to/g;
+    }
 
     $$text =~ s/\\_/\_/g;
     $$text =~ s/\\\$/\$/g;
@@ -398,7 +409,7 @@ It's not much, but there's more to come:
 
 =item * chapters
 
-=item * sections/subsections
+=item * sections/subsections/subsub...
 
 =item * verbatim blocks
 
@@ -417,7 +428,8 @@ It's not much, but there's more to come:
 The current implementation is a bit I<flaky> because C<LaTeX::TOM>, the framework
 being used for parsing the LaTeX nodes, makes a clear distinction between various
 types of nodes. As example, an \item directive has quite often a separate text which
-is associated with former one. And they can't be detected without a lookahead.
+is associated with former one. And they can't be detected without some kind of
+sophisticated "lookahead".
 
 I tried to implement a I<context-sensitive> awareness for C<LaTeX::Pod>. I did so
 by setting which node has been seen before the current one in order to be able to
@@ -427,9 +439,13 @@ and unregisters this information when it made use of it.
 
 Considering that the POD language has a limited subset of commands, the overhead
 of keeping track of node occurences seems almost bearable. The POD generated 
-may consist of too many newlines (because we can't always predict the unpredictable)
+may consist of too many newlines (because we can't always predict the unpredictable?)
 before undergoing the final scrubbing where more than two subsequent newlines
 will be truncated.
+
+=head1 SEE ALSO
+
+L<LaTeX::TOM>
 
 =head1 AUTHOR
 
