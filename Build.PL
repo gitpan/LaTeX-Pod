@@ -22,10 +22,6 @@ my $build = Module::Build->new
                        'FindBin' => 0,
                        'Test::More' => 0,
                      },
-   recommends => {
-                   'Test::Pod' => '1.14',
-                   'Test::Pod::Coverage' => '1.04',
-                 },
    script_files => [ 'scripts/latex2pod' ],
    license => 'perl',
    create_readme => 1,

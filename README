@@ -15,7 +15,6 @@ DESCRIPTION
 
 CONSTRUCTOR
   new
-
     The constructor requires that the path to the LaTeX source must be
     defined:
 
@@ -25,7 +24,6 @@ CONSTRUCTOR
 
 METHODS
   convert
-
     There is only one public method available, namely `convert()':
 
      $parser->convert;
@@ -42,6 +40,7 @@ SUPPORTED LANGUAGE SUBSET
     * plain text
     * bold/italic/code font tags
     * umlauts
+
 IMPLEMENTATION DETAILS
     The current implementation is a bit *flaky* because `LaTeX::TOM', the
     framework being used for parsing the LaTeX nodes, makes a clear

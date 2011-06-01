@@ -8,7 +8,7 @@ use Carp qw(croak);
 use LaTeX::TOM ();
 use Params::Validate ':all';
 
-our $VERSION = '0.20';
+our $VERSION = '0.20_01';
 
 validation_options(
     on_fail => sub
@@ -138,7 +138,7 @@ sub _process_directives
 {
     my $self = shift;
 
-    foreach my $node qw(directive docauthor) {
+    foreach my $node (qw(directive docauthor)) {
         if ($self->_is_set_node($node)) {
             $self->_unregister_node($node);
 

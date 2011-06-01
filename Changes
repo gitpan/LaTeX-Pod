@@ -1,5 +1,13 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.20_01  2011-06-01  <schubiger@cpan.org>
+
+ - Fix deprecated warning emitted for qw() used as parentheses.
+
+ - Skip documentation tests for non-release testing.
+
+ - Do no longer recommend Test::Pod and Test::Pod::Coverage.
+
 0.20 Tue Oct 27 12:32:28 CET 2009
 
  - Update broken license links.
