@@ -15,9 +15,10 @@ WriteMakefile
                            'File::Spec' => 0,
                            'LaTeX::TOM' => 0,
                            'Carp' => 0,
-                           'Test::More' => 0,
                            'boolean' => 0,
-                           'Params::Validate' => 0
+                           'Test::More' => 0,
+                           'Params::Validate' => 0,
+                           'List::MoreUtils' => 0
                          }
         )
 ;

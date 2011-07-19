@@ -10,13 +10,12 @@ SYNOPSIS
 
 DESCRIPTION
     `LaTeX::Pod' converts LaTeX sources to Perl's POD (Plain old
-    documentation) format. Currently only a subset of the available LaTeX
-    language is supported; see below for further information.
+    documentation). Currently only a subset of the available LaTeX language
+    is supported; see SUPPORTED LANGUAGE SUBSET for further details.
 
 CONSTRUCTOR
   new
-    The constructor requires that the path to the LaTeX source must be
-    defined:
+    The constructor requires that the path to the LaTeX source is defined:
 
      $parser = LaTeX::Pod->new('/path/to/source');
 
@@ -24,45 +23,47 @@ CONSTRUCTOR
 
 METHODS
   convert
-    There is only one public method available, namely `convert()':
+    There is one public *method* available, namely `convert()':
 
-     $parser->convert;
+     $pod = $parser->convert;
 
-    Returns the computed POD document as string.
+    Returns the computed POD as a string.
 
 SUPPORTED LANGUAGE SUBSET
-    Currently supported:
+    LaTeX currently supported:
 
+    * abstracts
     * chapters
-    * sections/subsections/subsub...
-    * verbatim blocks
-    * itemized lists
+    * sections/subsections/subsubsections
+    * description, enumerate and itemize lists
+    * verbatim blocks (and indentation)
     * plain text
     * bold/italic/code font tags
     * umlauts
+    * newlines
+    * comments
 
 IMPLEMENTATION DETAILS
-    The current implementation is a bit *flaky* because `LaTeX::TOM', the
-    framework being used for parsing the LaTeX nodes, makes a clear
-    distinction between various types of nodes. As example, an \item
-    directive has quite often a separate text associated with it as its
-    content. Such directives and their expected converted relatives within
-    the output stream possibly cannot be easily detected without some kind
-    of sophisticated "look-behind" mechanism, which is how `LaTeX::Pod'
-    internally functions.
+    The current implementation is based upon LaTeX::TOM (the framework being
+    used for parsing the LaTeX source) and its clear distinction between
+    various types of nodes. As an example, a `\chapter' command has a
+    separate text associated with it as its content. `LaTeX::Pod' uses a
+    "look-behind" mechanism for commands and their corresponding texts since
+    they currently cannot be easily detected without such a mechanism.
 
-    `LaTeX::Pod' was designed with the intention to be *context-sensitive*
-    aware. This is being achieved by setting which node has been seen before
-    the current one in order to be able to call the appropriate routine for
-    a LaTeX directive with two or more nodes. Furthermore, `LaTeX::Pod'
-    registers which node it has previously encountered and unregisters this
-    information when it made use of it.
+    Thus `LaTeX::Pod' was designed with the intention to be
+    *context-sensitive* aware. This is also being aimed at by eventually
+    registering which type of node has been seen before the current one --
+    useful when constructing logical paragraphs made out of two or more
+    nodes. `LaTeX::Pod' then finally unregisters the type of node seen when
+    it is no longer required. In addition, a dispatch queue is built
+    internally which is executed after all nodes have been processed.
 
-    Considering that the POD documentation format has a limited subset of
-    directives, the overhead of keeping track of node occurences appears to
-    be bearable. The POD computed may consist of too many newlines before
-    undergoing a transformation where leading and trailing newlines will be
-    truncated.
+    Considering that the POD format has a limited subset of directives, the
+    complexity of keeping track of node occurences appears to be bearable.
+    Leading and trailing newlines will be removed from the node's text
+    extracted where needed; furthermore, trailing spaces and tabs will also
+    be purged from each line of POD resulting.
 
 SEE ALSO
     LaTeX::TOM

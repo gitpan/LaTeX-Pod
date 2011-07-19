@@ -1,1 +1,4 @@
-- write more tests
+- split basic.t into multiple files
+- test for abstract followed by a tag
+- handle \paragraph and \subparagraph
+- document that the input must be parsable

@@ -1,6 +1,6 @@
 ---
 name: LaTeX-Pod
-version: 0.20_01
+version: 0.20_02
 author:
   - 'Steven Schubiger <schubiger@cpan.org>'
 abstract: Transform LaTeX source files to POD (Plain old documentation)
@@ -15,6 +15,7 @@ requires:
   Carp: 0
   Getopt::Long: 0
   LaTeX::TOM: 0
+  List::MoreUtils: 0
   Params::Validate: 0
   boolean: 0
 configure_requires:
@@ -22,7 +23,7 @@ configure_requires:
 provides:
   LaTeX::Pod:
     file: lib/LaTeX/Pod.pm
-    version: 0.20_01
+    version: 0.20_02
 generated_by: Module::Build version 0.340201
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html

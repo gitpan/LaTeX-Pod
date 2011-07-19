@@ -3,12 +3,18 @@ package LaTeX::Pod;
 use strict;
 use warnings;
 use boolean qw(true false);
+use constant do_exec => 1;
+use constant no_exec => 0;
 
 use Carp qw(croak);
 use LaTeX::TOM ();
+use List::MoreUtils qw(any);
 use Params::Validate ':all';
 
-our $VERSION = '0.20_01';
+our ($VERSION, $DEBUG);
+
+$VERSION = '0.20_02';
+$DEBUG   = false;
 
 validation_options(
     on_fail => sub
@@ -19,6 +25,9 @@ validation_options(
 },
     stack_skip => 2,
 );
+
+my $regex_list_type = join '|', qw(description enumerate itemize);
+my @text_node_types = qw(text tag);
 
 sub new
 {
@@ -36,39 +45,74 @@ sub convert
 {
     my $self = shift;
 
+    $self->_init_check($self->{file});
+    $self->_init_vars;
+
     my $nodes = $self->_init_tom;
 
-    foreach my $node (@$nodes) {
-        $self->{current_node} = $node;
+    my $sort = sub { my $order = pop; sort { $order->{$a} <=> $order->{$b} } keys %{$_[0]} };
+
+    my ($command_keyword, @queue);
+
+    foreach my $i (0 .. $#$nodes) {
+        my $node = $nodes->[$i];
         my $type = $node->getNodeType;
 
-        if ($type =~ /^(?:TEXT|COMMENT)$/) {
+        if ($type eq 'TEXT') {
             next if $node->getNodeText !~ /\w+/
-                 or $node->getNodeText =~ /^\\\w+$/m
-                 or $self->_process_directives;
+                 or $node->getNodeText =~ /^\\\w+$/m;
 
-            my $dispatched;
-            foreach my $dispatch (@{$self->{dispatch_text}}) {
-                if (eval $dispatch->[0]) {
-                    eval $dispatch->[1];
-                    $dispatched++;
-                }
+            if ($node->getNodeText =~ /\\item/) {
+                push @queue, [ sub { shift->_process_text_item(@_) }, $node ];
+            }
+            elsif (!defined $command_keyword && ($i >= 1
+                 ? !$self->_is_environment_type($node->getParent, 'verbatim') : true)
+            ) {
+                push @queue, [ sub { shift->_process_text(@_) }, $node ];
+            }
+            elsif (defined $command_keyword) {
+                push @queue, [ $self->{dispatch_text}->{$command_keyword}, $node ];
+                undef $command_keyword;
             }
         }
+        elsif ($type eq 'COMMENT') {
+            push @queue, [ sub { shift->_process_comment(@_) }, $node ];
+        }
         elsif ($type eq 'ENVIRONMENT') {
-            $self->_process_verbatim;
+            my $class = $node->getEnvironmentClass;
+            if ($class eq 'abstract') {
+                next;
+            }
+            elsif ($class =~ /^($regex_list_type)$/) {
+                push @queue, [ sub { shift->_process_start_item(@_) }, $node, $1 ];
+            }
+            elsif ($class eq 'verbatim') {
+                push @queue, [ sub { shift->_process_text_verbatim(@_) }, $node->getFirstChild ];
+            }
         }
         elsif ($type eq 'COMMAND') {
-            $self->_unregister_previous('verbatim');
             my $cmd_name = $node->getCommandName;
-
-            foreach my $dispatch (@{$self->{dispatch_command}}) {
-                if (eval $dispatch->[0]) {
-                    eval $dispatch->[1];
+            foreach my $keyword ($sort->(map $self->{$_}, qw(command_checks command_order))) {
+                if ($self->{command_checks}->{$keyword}->($cmd_name)) {
+                    my ($code, $exec) = @{$self->{dispatch_command}->{$keyword}};
+                    if (defined $exec && $exec) {
+                        $code->($self);
+                    }
+                    else {
+                        push @queue, [ $code, $node ] if defined $exec;
+                        $command_keyword = $keyword;
+                    }
+                    last;
                 }
             }
         }
     }
+
+    foreach my $dispatch (@queue) {
+        my ($code, $node, @args) = @$dispatch;
+        $code->($self, $node, @args);
+    }
+    $self->_process_end;
 
     return $self->_pod_finalize;
 }
@@ -98,27 +142,56 @@ sub _init
     my ($file) = @_;
 
     $self->{file} = $file;
-    $self->{title_inc} = 1;
 
-    @{$self->{dispatch_text}} = (
-        [ q{$self->_is_set_node('title')},    q{$self->_process_text_title}     ],
-        [ q{$self->_is_set_node('verbatim')}, q{$self->_process_text_verbatim}  ],
-        [ q{$node->getNodeText =~ /\\\item/}, q{$self->_process_text_item}      ],
-        [ q{$self->_is_set_node('textbf')},   q{$self->_process_tags('textbf')} ],
-        [ q{$self->_is_set_node('textsf')},   q{$self->_process_tags('textsf')} ],
-        [ q{$self->_is_set_node('emph')},     q{$self->_process_tags('emph')}   ],
-        [ q{!$dispatched},                    q{$self->_process_text}           ],
+    my $i = 0;
+    %{$self->{command_order}} = map { $_ => $i++ } qw(directive title author chapter section subsection textbf textsf emph);
+
+    %{$self->{command_checks}} = (
+        directive  => sub { $_[0] =~ /^(?:documentclass|usepackage|pagestyle)$/ },
+        title      => sub { $_[0] eq 'title'                                    },
+        author     => sub { $_[0] eq 'author'                                   },
+        chapter    => sub { $_[0] eq 'chapter'                                  },
+        section    => sub { $_[0] eq 'section'                                  },
+        subsection => sub { $_[0] =~ /^(?:sub){1,2}section$/                    },
+        textbf     => sub { $_[0] eq 'textbf'                                   },
+        textsf     => sub { $_[0] eq 'textsf'                                   },
+        emph       => sub { $_[0] eq 'emph'                                     },
     );
+    %{$self->{dispatch_command}} = (
+        directive  => [ sub {},                                 undef   ],
+        title      => [ sub {},                                 undef   ],
+        author     => [ sub {},                                 undef   ],
+        chapter    => [ sub { shift->_process_chapter(@_)    }, no_exec ],
+        section    => [ sub { shift->_process_section(@_)    }, no_exec ],
+        subsection => [ sub { shift->_process_subsection(@_) }, no_exec ],
+        textbf     => [ sub {},                                 undef   ],
+        textsf     => [ sub {},                                 undef   ],
+        emph       => [ sub {},                                 undef   ],
+    );
+    %{$self->{dispatch_text}} = (
+        directive  => sub { shift->_process_directive(shift, 'directive') },
+        title      => sub { shift->_process_directive(shift, 'title')     },
+        author     => sub { shift->_process_directive(shift, 'author')    },
+        chapter    => sub { shift->_process_text_title(@_)                },
+        section    => sub { shift->_process_text_title(@_)                },
+        subsection => sub { shift->_process_text_title(@_)                },
+        textbf     => sub { shift->_process_tag(shift, 'textbf')          },
+        textsf     => sub { shift->_process_tag(shift, 'textsf')          },
+        emph       => sub { shift->_process_tag(shift, 'emph')            },
+    );
+}
 
-    @{$self->{dispatch_command}} = (
-        [ q{$self->_is_set_previous('item')},                   q{$self->_process_item}               ],
-        [ q{$cmd_name eq 'chapter'},                            q{$self->_process_chapter}            ],
-        [ q{$cmd_name eq 'section'},                            q{$self->_process_section}            ],
-        [ q{$cmd_name =~ /subsection/},                         q{$self->_process_subsection}         ],
-        [ q{$cmd_name =~ /documentclass|usepackage|pagestyle/}, q{$self->_register_node('directive')} ],
-        [ q{$cmd_name eq 'title'},                              q{$self->_register_node('doctitle')}  ],
-        [ q{$cmd_name eq 'author'},                             q{$self->_register_node('docauthor')} ],
-        [ q{$cmd_name =~ /textbf|textsf|emph/},                 q{$self->_register_node($cmd_name)}   ],
+sub _init_vars
+{
+    my $self = shift;
+
+    delete @$self{qw(list node previous)};
+
+    $self->{pod} = [];
+
+    %{$self->{title_inc}} = (
+        title   => 1,
+        chapter => 1,
     );
 }
 
@@ -134,176 +207,218 @@ sub _init_tom
     return $nodes;
 }
 
-sub _process_directives
+sub _process_directive
 {
     my $self = shift;
+    my ($node, $directive) = @_;
 
-    foreach my $node (qw(directive docauthor)) {
-        if ($self->_is_set_node($node)) {
-            $self->_unregister_node($node);
+    return if any { $directive eq $_ } qw(directive author);
 
-            return true;
-        }
+    if ($directive eq 'title') {
+        $self->_pod_add('=head' . "$self->{title_inc}{title} " . $node->getNodeText);
     }
+}
 
-    if ($self->_is_set_node('doctitle')) {
-        $self->_unregister_node('doctitle');
+sub _process_comment
+{
+    my $self = shift;
+    my ($node) = @_;
 
-        $self->_pod_add('=head1 '.$self->{current_node}->getNodeText);
-        $self->{title_inc}++;
+    $self->_process_end_item($node);
 
-        return true;
-    }
+    $self->_unregister_previous(@text_node_types);
 
-    return false;
+    my $text = $node->getNodeText;
+
+    $self->_scrub_newlines(\$text);
+
+    $text =~ s/^ \s*? \% \s*? (?=\S)//x;
+
+    $self->_pod_add("=for comment $text");
 }
 
 sub _process_text_title
 {
     my $self = shift;
+    my ($node) = @_;
 
-    if ($self->_is_set_previous('item')) {
-        $self->_pod_add('=back');
-    }
-
-    my $text = $self->{current_node}->getNodeText;
+    my $text = $node->getNodeText;
 
     $self->_process_spec_chars(\$text);
 
     $self->_pod_append($text);
-
-    $self->_unregister_node('title');
-    $self->_register_previous('title');
 }
 
 sub _process_text_verbatim
 {
     my $self = shift;
+    my ($node) = @_;
 
-    my $text = $self->{current_node}->getNodeText;
+    $self->_process_end_item($node);
 
-    my $len;
-    while ($text =~ /^(\ *?)\w/gm) {
-        $len = length $1;
-        last if $len >= 0;
-    }
+    $self->_unregister_previous(@text_node_types);
 
-    if ($self->_is_set_previous('text')) {
-        $self->_pod_scrub_whitespaces(\$text);
+    my $text = $node->getNodeText;
 
-        if ($len) {
-            $text = ' ' x $len . $text;
-        }
-        else {
-            $text =~ s/^(.*)$/\ $1/gm;
-        }
-    }
-    else {
-        $self->_pod_scrub_newlines(\$text);
-    }
-
+    $self->_scrub_newlines(\$text);
     $self->_process_spec_chars(\$text);
+    $self->_prepend_spaces(\$text);
 
     $self->_pod_add($text);
+}
 
-    $self->_unregister_node('verbatim');
-    $self->_unregister_previous('title');
-    $self->_unregister_previous('text');
-    $self->_register_previous('verbatim');
+sub _process_start_item
+{
+    my $self = shift;
+    my ($node, $type) = @_;
+
+    $self->_process_end_item($node);
+
+    $self->_unregister_previous(@text_node_types);
+
+    my $nested = $self->_list_nestedness($node);
+
+    if ($nested) {
+        $self->_pod_add('=back');
+    }
+
+    %{$self->{list}{$nested}} = (
+        type => $type,
+        enum => 1,
+    );
+
+    $self->_pod_add('=over ' . (4 + $nested));
+
+    $self->_register_previous('list');
 }
 
 sub _process_text_item
 {
     my $self = shift;
+    my ($node) = @_;
 
-    unless ($self->_is_set_previous('item')) {
-        $self->_pod_add('=over 4');
+    $self->_unregister_previous(@text_node_types);
+
+    my $nested = $self->_list_nestedness($node) - 1;
+
+    if ($self->_is_environment_type($node->getPreviousSibling, qr/^(?:$regex_list_type)$/)) {
+        $self->_pod_add('=back');
+        $self->_pod_add('=over ' . (4 + $nested));
     }
 
-    my $text = $self->{current_node}->getNodeText;
+    my $text = $node->getNodeText;
 
-    if ($text =~ /\\item\s*\[(.*?)\]/) {
-        $self->_pod_add("=item $1");
+    my $type =  $self->{list}{$nested}{type};
+    my $enum = \$self->{list}{$nested}{enum};
+
+    LOOP: {
+        local ($1, $2);
+        if ($text =~ /\G \s*? \\item (?:\s*?\[(.+?)\]\s+?|\s+?) (\S.+)?$/cgmx) {
+            my $pod = '=item ';
+            if ($type eq 'description') {
+                $pod .= defined $1 ? "B<$1> " : '';
+            }
+            elsif ($type eq 'enumerate') {
+                $pod .= defined $1 ? "$1 " : ($$enum++ . '. ');
+            }
+            elsif ($type eq 'itemize') {
+                $pod .= defined $1 ? "$1 " : '* ';
+            }
+            $pod .= defined $2 ? $2 : '';
+            $self->_process_spec_chars(\$pod);
+            $self->_pod_add($pod);
+            redo;
+        }
+        elsif ($text =~ /\G \s*? (\S.+?) \s*? (?:(?=\\item)|\z)/gsx) {
+            my $pod = $1;
+            $self->_process_spec_chars(\$pod);
+            $self->_pod_add($pod);
+            redo;
+        }
     }
-    else {
-        $self->_pod_add('=item');
+}
+
+sub _process_end_item
+{
+    my $self = shift;
+    my ($node) = @_;
+
+    return unless $self->_is_set_previous('list');
+
+    my $parent = $node->getParent;
+
+    $parent = $parent->getParent if $self->_is_environment_type($parent, 'verbatim');
+
+    if ($self->_is_environment_type($parent, 'document')) {
+        $self->_pod_add('=back');
+        $self->_unregister_previous('list', @text_node_types);
     }
-
-    $self->_pod_scrub_newlines(\$text);
-    $self->_process_spec_chars(\$text);
-
-    $self->_register_previous('item');
 }
 
 sub _process_text
 {
     my $self = shift;
+    my ($node) = @_;
 
-    my $text = $self->{current_node}->getNodeText;
+    $self->_process_end_item($node);
 
+    if ($self->_is_environment_type($node->getPreviousSibling, 'abstract')) {
+        $self->_unregister_previous(@text_node_types);
+    }
+
+    my $text = $node->getNodeText;
+
+    $self->_scrub_newlines(\$text);
     $self->_process_spec_chars(\$text);
 
-    $self->_pod_scrub_newlines(\$text);
-    $self->_pod_add($text);
+    $self->_text_setter($text);
 
     $self->_register_previous('text');
-}
-
-sub _process_verbatim
-{
-    my $self = shift;
-
-    $self->_unregister_previous('verbatim');
-
-    if ($self->{current_node}->getEnvironmentClass eq 'verbatim') {
-        $self->_register_node('verbatim');
-    }
-}
-
-sub _process_item
-{
-    my $self = shift;
-
-    unless ($self->{current_node}->getCommandName eq 'mbox') {
-        if ($self->_is_set_previous('item')) {
-            $self->_pod_add('=back');
-        }
-
-        $self->_unregister_previous('item');
-    }
 }
 
 sub _process_chapter
 {
     my $self = shift;
+    my ($node) = @_;
 
-    $self->{title_inc}++;
+    $self->_process_end_item($node);
 
-    $self->_pod_add('=head1 ');
-    $self->_register_node('title');
+    $self->_unregister_previous(@text_node_types);
+
+    $self->{title_inc}{section} ||= $self->{title_inc}{chapter} + 1;
+
+    $self->_pod_add('=head' . $self->{title_inc}{chapter} . ' ');
 }
 
 sub _process_section
 {
     my $self = shift;
+    my ($node) = @_;
 
-    $self->_pod_add('=head'.$self->{title_inc}.' ');
-    $self->_register_node('title');
+    $self->_process_end_item($node);
+
+    $self->_unregister_previous(@text_node_types);
+
+    $self->{title_inc}{section} ||= 1;
+
+    $self->_pod_add('=head' . "$self->{title_inc}{section} ");
 }
 
 sub _process_subsection
 {
     my $self = shift;
+    my ($node) = @_;
 
-    my $sub_often;
-    my $var = $self->{current_node}->getCommandName;
+    $self->_process_end_item($node);
 
-    while ($var =~ s/sub(.*)/$1/g) {
-        $sub_often++;
-    }
+    $self->_unregister_previous(@text_node_types);
 
-    $self->_pod_add('=head'.($self->{title_inc} + $sub_often).' ');
-    $self->_register_node('title');
+    my $cmd_name = $node->getCommandName;
+
+    my $nested = 0;
+    $nested++ while $cmd_name =~ /\Gsub/g;
+
+    $self->_pod_add('=head' . ($self->{title_inc}{section} + $nested) . ' ');
 }
 
 sub _process_spec_chars
@@ -322,68 +437,150 @@ sub _process_spec_chars
         $$text =~ s/\\\"$from/$to/g;
     }
 
-    $$text =~ s/\\_/\_/g;
-    $$text =~ s/\\\$/\$/g;
+    foreach my $escape ('#', qw($ % & _ { })) {
+        $$text =~ s/\\\Q$escape\E/$escape/g;
+    }
 
-    $$text =~ s/\\verb(.)(.*?)\1/C<$2>/g;
-    $$text =~ s/\\newline//g;
+    $$text =~ s/\\ldots/.../g;
+
+    $$text =~ s/\\verb\*?(.)(.+?)\1/C<$2>/g;
+    $$text =~ s/(?:\\\\|\\newline)/\n/g;
 }
 
-sub _process_tags
+sub _process_tag
 {
     my $self = shift;
-    my ($tag) = @_;
+    my ($node, $tag) = @_;
 
-    my $text = $self->{current_node}->getNodeText;
+    $self->_process_end_item($node);
+
+    if ($self->_is_environment_type($node->getPreviousSibling, 'abstract')) {
+        $self->_unregister_previous(@text_node_types);
+    }
+
+    my $text = $node->getNodeText;
 
     my %tags = (textbf => 'B',
                 textsf => 'C',
                 emph   => 'I');
 
-    $self->{append_following} = true;
+    $self->_text_setter("$tags{$tag}<$text>");
 
-    $self->_pod_append("$tags{$tag}<$text>");
-    $self->_unregister_node($tag);
+    $self->_register_previous('tag');
+}
+
+sub _process_end
+{
+    my $self = shift;
+
+    if ($self->_is_set_previous('list')) {
+        $self->_pod_add('=back');
+        $self->_unregister_previous('list');
+    }
+}
+
+sub _is_environment_type
+{
+    my $self = shift;
+    my ($node, $type) = @_;
+
+    $type = qr/^$type$/ unless ref $type eq 'REGEXP';
+
+    return ($node
+         && $node->getNodeType eq 'ENVIRONMENT'
+         && $node->getEnvironmentClass =~ $type);
+}
+
+sub _list_nestedness
+{
+    my $self = shift;
+    my ($node) = @_;
+
+    my $nested = 0;
+
+    for (my $parent = $node->getParent;
+        $self->_is_environment_type($parent, qr/^(?:$regex_list_type)$/);
+        $parent = $parent->getParent
+    ) {
+        $nested++;
+    }
+
+    return $nested;
+}
+
+sub _prepend_spaces
+{
+    my $self = shift;
+    my ($text) = @_;
+
+    unless (length $$text) {
+        $$text =~ s/^/ /;
+        return;
+    }
+
+    $$text =~ s/^/ /gm;
+}
+
+sub _text_setter
+{
+    my $self = shift;
+    my ($text) = @_;
+
+    my $append = any { $self->_is_set_previous($_) } ('list', @text_node_types);
+    my $setter = $append ? '_pod_append' : '_pod_add';
+
+    $self->$setter($text);
 }
 
 sub _pod_add
 {
     my $self = shift;
-    my ($content) = @_;
+    my ($pod) = @_;
 
-    if (!$self->{append_following}) {
-        push @{$self->{pod}}, $content;
+    if (@{$self->{pod}}) {
+        $self->{pod}->[-1] =~ s/[\ \t]+$//gm;
     }
-    else {
-        $self->_pod_append($content);
-        $self->{append_following} = false;
-    }
+
+    push @{$self->{pod}}, $pod;
+
+    $self->_debug($pod) if $DEBUG;
 }
 
 sub _pod_append
 {
     my $self = shift;
-    my ($content) = @_;
+    my ($pod) = @_;
 
-    $self->{pod}->[-1] .= $content;
+    $self->{pod}->[-1] .= $pod;
+
+    $self->_debug($pod) if $DEBUG;
 }
 
-sub _pod_scrub_newlines
+sub _debug
+{
+    my $self = shift;
+    my ($pod) = @_;
+
+    my $re = qr/^.+::(.+)$/;
+
+    my $frame = (caller(2))[3] =~ /^.+::_text_setter$/ ? 1 : 0;
+
+    my ($sub)    = (caller(2 + $frame))[3] =~ $re;
+    my  $line    = (caller(1 + $frame))[2];
+    my ($setter) = (caller(1 + $frame))[3] =~ $re;
+
+    my $index = @{$self->{pod}} - 1;
+
+    printf STDERR ("%-12s(%-25s:%03d):[%3d]\t'%s'\n", $setter, $sub, $line, $index, $pod);
+}
+
+sub _scrub_newlines
 {
     my $self = shift;
     my ($text) = @_;
 
-    $$text =~ s/^\n*//;
-    $$text =~ s/\n*$//;
-}
-
-sub _pod_scrub_whitespaces
-{
-    my $self = shift;
-    my ($text) = @_;
-
-    $$text =~ s/^\s*//;
-    $$text =~ s/\s*$//;
+    $$text =~ s/^\n+//;
+    $$text =~ s/\n+$//;
 }
 
 sub _pod_get
@@ -437,30 +634,23 @@ sub _register_previous
 sub _is_set_previous
 {
     my $self = shift;
-    my ($item) = @_;
+    my @items = @_;
 
-    my @items = ref $item eq 'ARRAY' ? @$item : ($item);
-
-    foreach my $item_single (@items) {
-        if ($self->{previous}{$item_single}) {
-            return true;
-        }
+    my $ok = true;
+    foreach my $item (@items) {
+        $ok &= $self->{previous}{$item} ? true : false;
     }
 
-    return false;
+    return $ok;
 }
 
 sub _unregister_previous
 {
     my $self = shift;
-    my ($item) = @_;
+    my @items = @_;
 
-    my @items = ref $item eq 'ARRAY' ? @$item : ($item);
-
-    foreach my $item_single (@items) {
-        if ($self->{previous}{$item_single}) {
-            delete $self->{previous}{$item_single};
-        }
+    foreach my $item (@items) {
+        delete $self->{previous}{$item};
     }
 }
 
@@ -477,15 +667,15 @@ LaTeX::Pod - Transform LaTeX source files to POD (Plain old documentation)
 
 =head1 DESCRIPTION
 
-C<LaTeX::Pod> converts LaTeX sources to Perl's POD (Plain old documentation)
-format. Currently only a subset of the available LaTeX language is supported;
-see below for further information.
+C<LaTeX::Pod> converts LaTeX sources to Perl's POD (Plain old documentation).
+Currently only a subset of the available LaTeX language is supported;
+see L<SUPPORTED LANGUAGE SUBSET> for further details.
 
 =head1 CONSTRUCTOR
 
 =head2 new
 
-The constructor requires that the path to the LaTeX source must be defined:
+The constructor requires that the path to the LaTeX source is defined:
 
  $parser = LaTeX::Pod->new('/path/to/source');
 
@@ -495,25 +685,27 @@ Returns the parser object.
 
 =head2 convert
 
-There is only one public method available, namely C<convert()>:
+There is one public I<method> available, namely C<convert()>:
 
- $parser->convert;
+ $pod = $parser->convert;
 
-Returns the computed POD document as string.
+Returns the computed POD as a string.
 
 =head1 SUPPORTED LANGUAGE SUBSET
 
-Currently supported:
+LaTeX currently supported:
 
 =over 4
 
+=item * abstracts
+
 =item * chapters
 
-=item * sections/subsections/subsub...
+=item * sections/subsections/subsubsections
 
-=item * verbatim blocks
+=item * description, enumerate and itemize lists
 
-=item * itemized lists
+=item * verbatim blocks (and indentation)
 
 =item * plain text
 
@@ -521,28 +713,32 @@ Currently supported:
 
 =item * umlauts
 
+=item * newlines
+
+=item * comments
+
 =back
 
 =head1 IMPLEMENTATION DETAILS
 
-The current implementation is a bit I<flaky> because C<LaTeX::TOM>, the framework
-being used for parsing the LaTeX nodes, makes a clear distinction between various
-types of nodes. As example, an \item directive has quite often a separate text
-associated with it as its content. Such directives and their expected converted
-relatives within the output stream possibly cannot be easily detected without
-some kind of sophisticated "look-behind" mechanism, which is how C<LaTeX::Pod>
-internally functions.
+The current implementation is based upon L<LaTeX::TOM> (the framework being
+used for parsing the LaTeX source) and its clear distinction between various
+types of nodes. As an example, a C<\chapter> command has a separate text
+associated with it as its content. C<LaTeX::Pod> uses a "look-behind" mechanism
+for commands and their corresponding texts since they currently cannot be easily
+detected without such a mechanism.
 
-C<LaTeX::Pod> was designed with the intention to be I<context-sensitive> aware.
-This is being achieved by setting which node has been seen before the current one in
-order to be able to call the appropriate routine for a LaTeX directive with two or
-more nodes. Furthermore, C<LaTeX::Pod> registers which node it has previously
-encountered and unregisters this information when it made use of it.
+Thus C<LaTeX::Pod> was designed with the intention to be I<context-sensitive>
+aware. This is also being aimed at by eventually registering which type of node
+has been seen before the current one -- useful when constructing logical paragraphs
+made out of two or more nodes. C<LaTeX::Pod> then finally unregisters the type
+of node seen when it is no longer required. In addition, a dispatch queue is built
+internally which is executed after all nodes have been processed.
 
-Considering that the POD documentation format has a limited subset of directives,
-the overhead of keeping track of node occurences appears to be bearable. The POD
-computed may consist of too many newlines before undergoing a transformation
-where leading and trailing newlines will be truncated.
+Considering that the POD format has a limited subset of directives, the complexity
+of keeping track of node occurences appears to be bearable. Leading and trailing
+newlines will be removed from the node's text extracted where needed; furthermore,
+trailing spaces and tabs will also be purged from each line of POD resulting.
 
 =head1 SEE ALSO
 

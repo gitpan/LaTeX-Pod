@@ -1,5 +1,51 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.20_02  2011-07-19  <schubiger@cpan.org>
+
+ - Build a dispatch queue (with a node and other arguments per entry)
+   which has its code executed when all nodes have been processed.
+
+ - Alter the dispatch tables accordingly and sort the command checks.
+
+ - When extracting the label and text of the \item command, distinguish
+   between lists of type description, enumerate and itemize.
+
+ - Increase the indent level for flattened nested list environments.
+
+ - Indent verbatim text by prepending a space to the existing ones.
+
+ - Add handling of abstracts and some escaped characters.
+
+ - Substitute the \\ and \newline commands with a newline.
+
+ - Process single-line comments.
+
+ - Remove trailing spaces and tabs for preceding pod added in _pod_add().
+
+ - Verify first when converting that the input file still exists.
+
+ - Rephrase the notes on the implementation details.
+
+ - Introduce a debugging method which traces the pod being set.
+
+ - Initialize instance variables when convert() is called.
+
+ - Provide the title counter for each =headN passed to _pod_add().
+
+ - Unregister all text nodes first when processing a non-text node.
+
+ - Check for end of list when outside of the \item handling method.
+
+ - Expect flat lists as arguments for the 'previous' accessors.
+
+ - Wrap appending or adding text conditionally in a setter method.
+
+ - Simplify counting the level of nestedness for sub+sections.
+
+ - Extend the pod expected by the tests and the tex file.
+
+ - Make the tests capable of evaling inserted placeholders.
+
 0.20_01  2011-06-01  <schubiger@cpan.org>
 
  - Fix deprecated warning emitted for qw() used as parentheses.
