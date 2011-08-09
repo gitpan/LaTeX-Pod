@@ -13,7 +13,7 @@ use Params::Validate ':all';
 
 our ($VERSION, $DEBUG);
 
-$VERSION = '0.20_02';
+$VERSION = '0.20_03';
 $DEBUG   = false;
 
 validation_options(
@@ -636,7 +636,9 @@ sub _is_set_previous
     my $self = shift;
     my @items = @_;
 
-    my $ok = true;
+    # eval in order to avoid fatal errors on some older perls
+    my $ok = eval true;
+
     foreach my $item (@items) {
         $ok &= $self->{previous}{$item} ? true : false;
     }
@@ -739,6 +741,11 @@ Considering that the POD format has a limited subset of directives, the complexi
 of keeping track of node occurences appears to be bearable. Leading and trailing
 newlines will be removed from the node's text extracted where needed; furthermore,
 trailing spaces and tabs will also be purged from each line of POD resulting.
+
+=head1 BUGS & CAVEATS
+
+It is highly recommended to ensure that the structure of the LaTeX input file
+follows the format specification strictly or the parser may B<not> succeed.
 
 =head1 SEE ALSO
 

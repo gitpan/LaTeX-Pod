@@ -65,6 +65,11 @@ IMPLEMENTATION DETAILS
     extracted where needed; furthermore, trailing spaces and tabs will also
     be purged from each line of POD resulting.
 
+BUGS & CAVEATS
+    It is highly recommended to ensure that the structure of the LaTeX input
+    file follows the format specification strictly or the parser may not
+    succeed.
+
 SEE ALSO
     LaTeX::TOM
 

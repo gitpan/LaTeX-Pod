@@ -1,5 +1,11 @@
 Revision history for Perl extension LaTeX::Pod.
 
+0.20_03  2011-08-09  <schubiger@cpan.org>
+
+ - Work around an assertion failure in 5.8.9 and possibly higher.
+
+ - Document the strictness of LaTeX expected.
+
 0.20_02  2011-07-19  <schubiger@cpan.org>
 
  - Build a dispatch queue (with a node and other arguments per entry)
