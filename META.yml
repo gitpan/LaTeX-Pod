@@ -18,7 +18,7 @@ name: LaTeX-Pod
 provides:
   LaTeX::Pod:
     file: lib/LaTeX/Pod.pm
-    version: 0.20_03
+    version: 0.21
 requires:
   Carp: 0
   Getopt::Long: 0
@@ -28,4 +28,4 @@ requires:
   boolean: 0
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.20_03
+version: 0.21
